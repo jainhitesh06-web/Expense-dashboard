@@ -76,7 +76,15 @@ textarea { width:100%; min-height:92px; font:inherit; color:var(--ink); backgrou
 .primary { background:var(--c1); color:#fff; border-color:transparent; font-weight:600; }
 .primary[disabled] { opacity:.6; cursor:default; }
 #aStatus { margin:10px 0 0; min-height:1.4em; font-size:14px; }
-#aStatus.err { color:var(--c8); } #aStatus.ok { color:var(--c6); }
+#aStatus.err, #eStatus.err { color:var(--c8); } #aStatus.ok { color:var(--c6); }
+tbody tr { cursor:pointer; }
+tbody tr:hover { background:color-mix(in srgb, var(--line) 40%, transparent); }
+#editCard { border-color:var(--c1); }
+.danger { color:var(--c8); }
+details.sms { margin-top:10px; font-size:13px; color:var(--ink2); }
+details.sms pre { white-space:pre-wrap; word-break:break-word; margin:6px 0 0; font:inherit; color:var(--ink3); }
+.chk { display:flex; align-items:center; gap:8px; margin-top:10px; font-size:14px; }
+.chk input { width:auto; }
 </style>
 </head>
 <body>
@@ -129,6 +137,29 @@ textarea { width:100%; min-height:92px; font:inherit; color:var(--ink); backgrou
     <p id="aStatus" role="status"></p>
   </div>
 
+  <div class="card" id="editCard" hidden>
+    <h2>Edit transaction</h2>
+    <div class="fgrid">
+      <div class="full"><label for="eMerchant">Merchant / payee</label><input id="eMerchant"></div>
+      <div><label for="eCat">Category</label><select id="eCat"></select></div>
+      <div><label for="eSub">Subcategory</label><select id="eSub"></select></div>
+      <div id="eFromWrap" hidden><label for="eFrom">From</label><input id="eFrom"></div>
+      <div id="eToWrap" hidden><label for="eTo">To</label><input id="eTo"></div>
+      <div><label for="eAmt">Amount ₹</label><input id="eAmt" type="number" inputmode="decimal" min="0" step="0.01"></div>
+      <div><label for="eDate">Date</label><input id="eDate" type="date"></div>
+      <div><label for="eMode">Payment mode</label><select id="eMode"></select></div>
+      <div class="full"><label for="eNote">Note</label><input id="eNote"></div>
+    </div>
+    <label class="chk" id="eRememberWrap"><input type="checkbox" id="eRemember" checked> Remember this merchant for future messages</label>
+    <details class="sms"><summary>Original message</summary><pre id="eSms"></pre></details>
+    <p style="margin:12px 0 0;display:flex;gap:8px;flex-wrap:wrap">
+      <button id="eSave" class="primary">Save</button>
+      <button id="eCancel">Cancel</button>
+      <button id="eDelete" class="danger">Delete</button>
+    </p>
+    <p id="eStatus" role="status" style="min-height:1.4em;margin:10px 0 0;font-size:14px"></p>
+  </div>
+
   <div class="tiles" id="tiles"></div>
 
   <div class="grid2">
@@ -139,7 +170,7 @@ textarea { width:100%; min-height:92px; font:inherit; color:var(--ink); backgrou
   <div class="card"><h2>By category <span class="muted">(tap a category for subcategories)</span></h2><div id="cats"></div></div>
 
   <div class="card">
-    <h2>Transactions</h2>
+    <h2>Transactions <span class="muted">(tap one to edit)</span></h2>
     <div class="scroll"><table>
       <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Mode</th><th class="n">Amount</th></tr></thead>
       <tbody id="txns"></tbody>
@@ -328,7 +359,7 @@ function render() {
   });
 
   const t = rows.slice().sort((a,b) => b.date.localeCompare(a.date) || b.amount - a.amount);
-  $("#txns").innerHTML = t.slice(0, TXN_LIMIT).map(r => `<tr>
+  $("#txns").innerHTML = t.slice(0, TXN_LIMIT).map(r => `<tr data-id="${esc(r.id)}">
     <td>${r.date.slice(5).split("-").reverse().join("/")}</td>
     <td>${esc(r.description)}</td>
     <td><span class="dot" style="background:${colorOf(r.category)}"></span>${esc(r.category)}</td>
@@ -336,7 +367,75 @@ function render() {
   $("#more").innerHTML = t.length > TXN_LIMIT ? `<button id="showAll">Show all ${t.length}</button>` : "";
 }
 
+
+// ---------- edit a transaction ----------
+let EDIT = null;
+const MODES = ["UPI", "Credit Card", "Debit Card", "Card", "Cash", "NetBanking", "Auto-debit", "ATM", "Wallet", "Other"];
+function fillSelect(sel, values, current) {
+  const list = values.includes(current) || !current ? values : values.concat(current);
+  sel.innerHTML = list.map(v => `<option>${esc(v)}</option>`).join(""); if (current) sel.value = current;
+}
+function editSubs(cat, current) {
+  fillSelect($("#eSub"), Object.keys((RULES && RULES[cat]) || {}).concat(["Other"]).filter((v, i, a) => a.indexOf(v) === i), current);
+  const travel = cat === "Travel";
+  $("#eFromWrap").hidden = $("#eToWrap").hidden = !travel;
+}
+function openEdit(id) {
+  EDIT = RAW.find(r => r.id === id); if (!EDIT) return;
+  const cats = Object.keys(RULES || {});
+  fillSelect($("#eCat"), cats.concat(["Uncategorized"]), EDIT.category);
+  editSubs(EDIT.category, EDIT.subcategory);
+  fillSelect($("#eMode"), MODES, EDIT.mode);
+  $("#eMerchant").value = EDIT.merchant || ""; $("#eAmt").value = EDIT.amount; $("#eDate").value = EDIT.date;
+  $("#eFrom").value = EDIT.from || ""; $("#eTo").value = EDIT.to || ""; $("#eNote").value = EDIT.note || "";
+  $("#eSms").textContent = EDIT.sms || "(no message text)";
+  $("#eRemember").checked = !!EDIT.merchant; $("#eRememberWrap").hidden = false;
+  $("#eStatus").textContent = ""; $("#eStatus").className = ""; $("#eSave").disabled = $("#eDelete").disabled = false;
+  $("#editCard").hidden = false; $("#editCard").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+async function sendEdit(fields, busyMsg) {
+  const repo = LS.get("repo"), token = LS.get("token"), branch = LS.get("branch") || "main";
+  const t = new Date(), p2 = n => String(n).padStart(2, "0");
+  const head = ["sender: dashboard", `received: ${localDate()}T${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())}`, "edit: " + EDIT.id]
+    .concat(Object.entries(fields).map(([k, v]) => `${k}: ${oneLine(v)}`));
+  const path = `inbox/z-edit-${Date.now()}-${Math.floor(Math.random() * 1e6)}.txt`;
+  const st = $("#eStatus"); $("#eSave").disabled = $("#eDelete").disabled = true; st.className = ""; st.textContent = busyMsg;
+  const fail = m => { $("#eSave").disabled = $("#eDelete").disabled = false; st.className = "err"; st.textContent = m; };
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+      method: "PUT", headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "edit entry", content: b64(head.join("\n") + "\n---\n\n"), branch }) });
+    if (!r.ok) return fail(r.status === 401 || r.status === 403 || r.status === 404
+      ? "Saving failed: the token needs Contents: Read and write on this repo." : "Saving failed (GitHub " + r.status + ").");
+  } catch (e) { return fail("Network error. Try again."); }
+  for (let i = 0; i < 30; i++) {
+    await new Promise(res => setTimeout(res, 3000));
+    try {
+      const g = await fetch(`https://api.github.com/repos/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`,
+        { headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" }, cache: "no-store" });
+      if (g.status !== 404) continue;
+      await load(); buildFilters(); render();
+      $("#editCard").hidden = true; EDIT = null; return;
+    } catch (e) { continue; }
+  }
+  fail("Saved, but the workflow hasn't processed it yet. Press ↻ in a minute.");
+}
+function saveEdit() {
+  const amt = parseFloat($("#eAmt").value);
+  if (!(amt > 0)) { $("#eStatus").className = "err"; return ($("#eStatus").textContent = "Enter a valid amount."); }
+  const cat = $("#eCat").value, merchant = $("#eMerchant").value.trim();
+  sendEdit({ category: cat, subcategory: $("#eSub").value, merchant, amount: amt, date: $("#eDate").value || EDIT.date, mode: $("#eMode").value,
+    from: cat === "Travel" ? $("#eFrom").value : "", to: cat === "Travel" ? $("#eTo").value : "", note: $("#eNote").value,
+    remember: $("#eRemember").checked && !!merchant }, "Saving… (takes about 20 seconds)");
+}
+$("#eCat").onchange = () => editSubs($("#eCat").value, "");
+$("#eSave").onclick = saveEdit;
+$("#eCancel").onclick = () => { $("#editCard").hidden = true; EDIT = null; };
+$("#eDelete").onclick = () => { if (confirm("Delete this transaction?")) sendEdit({ delete: "true" }, "Deleting…"); };
+
 document.addEventListener("click", e => {
+  const tr = e.target.closest("#txns tr[data-id]");
+  if (tr) { openEdit(tr.dataset.id); return; }
   const row = e.target.closest("#cats .row.click");
   if (row) { const c = row.dataset.cat; openCat.has(c) ? openCat.delete(c) : openCat.add(c); render(); return; }
   const col = e.target.closest(".col");

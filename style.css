@@ -139,3 +139,14 @@ details.more summary { cursor:pointer; color:var(--accent); font-size:14px; padd
 .chk input { width:20px; height:20px; padding:0; }
 details.orig { margin-top:12px; font-size:13px; color:var(--ink3); }
 details.orig pre { white-space:pre-wrap; word-break:break-word; font:inherit; margin:6px 0 0; }
+
+/* search */
+.searchbar { position:relative; margin-bottom:14px; }
+.searchbar .mag { position:absolute; left:14px; top:50%; transform:translateY(-50%); pointer-events:none; opacity:.6; }
+.searchbar input { padding:13px 40px 13px 40px; border-radius:16px; font-size:16px; }
+.searchbar .clr { position:absolute; right:6px; top:50%; transform:translateY(-50%); border:0; background:none; padding:8px 10px; color:var(--ink3); font-size:16px; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 2px; }
+.chips .chip { border:0; cursor:pointer; }
+.found { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; }
+
+input[type=search]::-webkit-search-cancel-button, input[type=search]::-webkit-search-decoration { -webkit-appearance:none; appearance:none; display:none; }

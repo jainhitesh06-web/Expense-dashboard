@@ -127,6 +127,7 @@ const App = (() => {
     sheetEl.innerHTML = `<div class="panel" role="dialog" aria-modal="true">
       <h2 id="sTitle">Edit payment</h2>
       <div id="sHint" class="notice" hidden></div>
+      <p id="sAi" class="muted" hidden style="font-size:13px;margin:4px 0 0"></p>
       <div class="grid">
         <div class="full"><label id="sNameL" for="sName">Name</label><input id="sName" autocapitalize="words"></div>
         <div><label for="sCat">Category</label><select id="sCat"></select><input id="sCatNew" placeholder="New category name" hidden style="margin-top:8px"></div>
@@ -182,6 +183,9 @@ const App = (() => {
     const hint = q("#sHint");
     hint.hidden = !review;
     hint.textContent = "I couldn't tell what this is. Type a few words and I'll file it, or pick a category below.";
+    const aiLine = q("#sAi");
+    aiLine.hidden = rec.source !== "ai";
+    if (rec.source === "ai") aiLine.textContent = `Filed by AI${rec.confidence != null ? " (" + Math.round(rec.confidence * 100) + "% sure)" : ""}${rec.summary ? " · " + rec.summary : ""}`;
     q("#sName").value = rec.merchant || "";
     const cats = state.TAX.map(c => c.name);
     if (!cats.includes(rec.category)) cats.push(rec.category);

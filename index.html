@@ -11,6 +11,9 @@
 <body>
 <main>
   <header class="top"><h1>Expenses</h1><button class="ghost" id="gear" title="Connection settings" aria-label="Connection settings">⚙︎</button></header>
+  <div class="searchbar"><span class="mag" aria-hidden="true">🔍</span>
+    <input id="q" type="search" enterkeyhint="search" autocomplete="off" aria-label="Search your expenses" placeholder="Search: maid, uber, food last month, over 500">
+    <button class="clr" id="qclear" hidden aria-label="Clear search">✕</button></div>
   <div id="root"><p class="muted">Loading…</p></div>
 </main>
 <script src="app.js"></script>
@@ -23,6 +26,58 @@ const prevKey = k => { let y = +k.slice(0, 4), m = +k.slice(5) - 1; if (m < 1) {
 const nextKey = k => { let y = +k.slice(0, 4), m = +k.slice(5) + 1; if (m > 12) { y++; m = 1; } return `${y}-${String(m).padStart(2, "0")}`; };
 const group = (rows, f) => { const m = new Map(); rows.forEach(r => { const k = f(r); (m.get(k) || m.set(k, []).get(k)).push(r); }); return m; };
 const sorted = m => [...m].map(([k, v]) => [k, v, sum(v)]).sort((a, b) => b[2] - a[2]);
+
+/* ---------- search ---------- */
+const MON = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+const STOP = new Set(["the","a","an","my","of","on","in","for","at","spent","spend","expense","expenses","payment","payments","paid","show","me","all","and"]);
+const isoDay = d => localDate(d);
+function parseQuery(raw) {
+  let q = " " + raw.toLowerCase() + " "; const f = { terms: [], from: null, to: null, min: null, max: null, months: [], year: null, chips: [] };
+  const take = (re, fn) => { q = q.replace(re, (...m) => { fn(m); return " "; }); };
+  const now = new Date(), day = n => isoDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + n));
+  take(/\byesterday\b/, () => { f.from = f.to = day(-1); f.chips.push("Yesterday"); });
+  take(/\btoday\b/, () => { f.from = f.to = day(0); f.chips.push("Today"); });
+  take(/\blast month\b/, () => { const a = new Date(now.getFullYear(), now.getMonth() - 1, 1), b = new Date(now.getFullYear(), now.getMonth(), 0); f.from = isoDay(a); f.to = isoDay(b); f.chips.push("Last month"); });
+  take(/\bthis month\b/, () => { f.from = isoDay(new Date(now.getFullYear(), now.getMonth(), 1)); f.to = day(0); f.chips.push("This month"); });
+  take(/\b(?:last 7 days|last week|this week)\b/, () => { f.from = day(-6); f.to = day(0); f.chips.push("Last 7 days"); });
+  take(/(?:>|\babove\b|\bover\b|\bmore than\b)\s*₹?\s*([\d,]+)/, m => { f.min = +m[1].replace(/,/g, ""); f.chips.push("Over " + inr(f.min)); });
+  take(/(?:<|\bbelow\b|\bunder\b|\bless than\b)\s*₹?\s*([\d,]+)/, m => { f.max = +m[1].replace(/,/g, ""); f.chips.push("Under " + inr(f.max)); });
+  take(/\b(20\d\d)\b/, m => { f.year = m[1]; f.chips.push(m[1]); });
+  take(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/, m => { f.months.push(MON.indexOf(m[1]) + 1); f.chips.push(App.MN[MON.indexOf(m[1])]); });
+  f.terms = q.split(/[\s,]+/).map(t => t.replace(/^[^\w₹]+|[^\w]+$/g, "")).filter(t => t && !STOP.has(t));
+  return f;
+}
+function haystack(r) {
+  return [payName(r), r.merchant, r.category, r.subcategory, r.description, r.note, r.mode, r.summary, (r.tags || []).join(" "), Math.round(r.amount), r.amount, r.date].join(" ").toLowerCase();
+}
+function matches(r, f) {
+  if (f.from && r.date < f.from) return false; if (f.to && r.date > f.to) return false;
+  if (f.min != null && r.amount <= f.min) return false; if (f.max != null && r.amount >= f.max) return false;
+  if (f.year && !r.date.startsWith(f.year)) return false;
+  if (f.months.length && !f.months.includes(+r.date.slice(5, 7))) return false;
+  const h = haystack(r);
+  return f.terms.every(t => h.includes(t) || (t.length > 3 && t.endsWith("s") && h.includes(t.slice(0, -1))));
+}
+function renderSearch(all) {
+  const f = parseQuery(S.q), rows = all.filter(r => matches(r, f)), total = sum(rows);
+  let h = `<div class="card"><div class="found">${rows.length} payment${rows.length === 1 ? "" : "s"} · ${inr(total)}</div>`;
+  if (f.chips.length) h += `<div class="chips">${f.chips.map(c => `<span class="chip">${esc(c)}</span>`).join("")}</div>`;
+  if (rows.length) {
+    const cats = sorted(group(rows, r => r.category)).slice(0, 5);
+    if (cats.length > 1) h += `<div style="margin-top:10px">${cats.map(([c, , t]) => `<div class="chips" style="margin:2px 0"><button class="chip" data-q="${esc(c)}">${catIcon(c)} ${esc(c)} · ${inr(t)}</button></div>`).join("")}</div>`;
+  }
+  h += `</div>`;
+  if (!rows.length) {
+    h += `<div class="card"><p class="muted" style="margin:0">Nothing found for “${esc(S.q.trim())}”. Try a category (Household), a payee (Swiggy), a month (Oct), or an amount (over 500).</p></div>`;
+  } else {
+    h += `<div class="card">`; let last = "";
+    rows.slice().sort((a, b) => b.date.localeCompare(a.date) || (b.added || "").localeCompare(a.added || "")).slice(0, S.limit * 2).forEach(r => {
+      if (r.date !== last) { h += `<div class="dayh">${dayLabel(r.date)}</div>`; last = r.date; } h += payRow(r, true); });
+    if (rows.length > S.limit * 2) h += `<p style="text-align:center"><button id="more">Show more</button></p>`;
+    h += `</div>`;
+  }
+  $("#root").innerHTML = h;
+}
 
 function dayLabel(d) {
   const t = localDate(), y = localDate(new Date(Date.now() - 864e5));
@@ -39,6 +94,8 @@ function payRow(r, big) {
 
 function render() {
   const all = App.debits();
+  $("#qclear").hidden = !S.q;
+  if (S.q.trim()) return renderSearch(all);
   const months = [...new Set(all.map(r => r.date.slice(0, 7)))].sort();
   const thisMonth = localDate().slice(0, 7);
   if (!S.month) S.month = months.includes(thisMonth) || !months.length ? thisMonth : months[months.length - 1];
@@ -139,23 +196,19 @@ function render() {
     h += `<div class="card"><h2>Worth knowing</h2><ul class="insights">${ins.map(i => `<li>${i}</li>`).join("")}</ul></div>`;
 
     // payments
-    const q = S.q.trim().toLowerCase();
-    const list = (q ? rows.filter(r => `${payName(r)} ${r.category} ${r.subcategory} ${r.note || ""} ${r.mode}`.toLowerCase().includes(q)) : rows)
-      .slice().sort((a, b) => b.date.localeCompare(a.date) || (b.added || "").localeCompare(a.added || ""));
-    h += `<div class="card"><h2>All payments</h2><input class="search" id="q" type="search" placeholder="Search by name, category or note" value="${esc(S.q)}">`;
+    const list = rows.slice().sort((a, b) => b.date.localeCompare(a.date) || (b.added || "").localeCompare(a.added || ""));
+    h += `<div class="card"><h2>All payments</h2>`;
     let last = "";
     list.slice(0, S.limit).forEach(r => { if (r.date !== last) { h += `<div class="dayh">${dayLabel(r.date)}</div>`; last = r.date; } h += payRow(r, true); });
-    if (!list.length) h += `<p class="muted">Nothing matches "${esc(S.q)}".</p>`;
     if (list.length > S.limit) h += `<p style="text-align:center"><button id="more">Show ${Math.min(30, list.length - S.limit)} more</button></p>`;
     h += `</div>`;
   }
-  const keepFocus = document.activeElement && document.activeElement.id === "q";
   $("#root").innerHTML = h;
-  if (keepFocus) { const i = $("#q"); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
 }
 
 document.addEventListener("click", e => {
   const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.q) { S.q = t.dataset.q; $("#q").value = S.q; S.limit = 30; return render(); }
   if (t.id === "mPrev") { S.month = prevKey(S.month); S.limit = 30; return render(); }
   if (t.id === "mNext") { S.month = nextKey(S.month); S.limit = 30; return render(); }
   if (t.id === "mAll") { S.month = S.month === "all" ? null : "all"; S.limit = 30; return render(); }
@@ -175,6 +228,7 @@ document.addEventListener("click", e => {
   if (id) { const rec = App.state.RAW.find(r => r.id === id); if (rec) App.Sheet.open(rec, { onDone: () => render() }); }
 });
 document.addEventListener("input", e => { if (e.target.id === "q") { S.q = e.target.value; S.limit = 30; render(); } });
+$("#qclear").onclick = () => { S.q = ""; $("#q").value = ""; render(); $("#q").focus(); };
 $("#gear").onclick = () => App.connect().then(() => location.reload());
 
 App.nav("summary");

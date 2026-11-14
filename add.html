@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Expenses">
+<title>Add a payment</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header class="top"><h1>Add a payment</h1></header>
+
+  <div class="card">
+    <label for="txt" class="muted">Paste a bank message, or just type it</label>
+    <textarea id="txt" autofocus placeholder="122 Snabbit maid"></textarea>
+    <p class="hint">Try: <code>Uber 320 Indiranagar to airport</code> · <code>yesterday 80 chai</code> · <code>1200 electrician</code> · or paste the whole SMS.</p>
+    <div class="rowbtns" style="margin-top:0"><button class="primary" id="go">Add</button></div>
+    <p id="stat" class="stat" role="status"></p>
+  </div>
+
+  <div id="result"></div>
+
+  <div class="card" id="recentCard" hidden><h2>Recently added</h2><div id="recent"></div></div>
+</main>
+<script src="app.js"></script>
+<script>
+const { $, esc, inr2, title, catIcon, catColor, payName } = App;
+let current = null;
+
+const dayText = d => { const t = App.localDate(), y = App.localDate(new Date(Date.now() - 864e5));
+  return d === t ? "Today" : d === y ? "Yesterday" : new Date(d + "T12:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" }); };
+
+function resultCard(r) {
+  current = r;
+  const review = !!r.review;
+  $("#result").innerHTML = `<div class="card result">
+    <div class="rt">${catIcon(r.category)} ${inr2(r.amount)} · ${esc(payName(r))}</div>
+    <div class="rs" style="color:${catColor(r.category)};font-weight:600">${esc(r.category)} › ${esc(r.subcategory)}</div>
+    <div class="rs">${dayText(r.date)} · ${esc(r.mode)}${r.note ? " · " + esc(r.note) : ""}</div>
+    ${review ? `<div class="notice"><b>I'm not sure what this is.</b> Tell me in a few words and I'll file it and remember it.
+      <div style="display:flex;gap:8px;margin-top:8px"><input id="what" placeholder="e.g. Snabbit maid" autocapitalize="words"><button class="primary" id="whatGo">Save</button></div>
+      <div id="whatStat" class="stat"></div></div>` : `<p class="ok" style="margin:10px 0 0">Added ✓</p>`}
+    <div class="rowbtns"><button id="change">Change details</button><button id="another">Add another</button></div></div>`;
+  $("#result").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function renderRecent() {
+  const rows = App.debits().slice().sort((a, b) => (b.added || b.date).localeCompare(a.added || a.date)).slice(0, 6);
+  $("#recentCard").hidden = !rows.length;
+  $("#recent").innerHTML = rows.map(r => `<button class="pay big" data-id="${esc(r.id)}"><span class="ico">${catIcon(r.category)}</span><span class="t">${esc(payName(r))}</span><span class="s">${esc(r.category)} › ${esc(r.subcategory)} · ${dayText(r.date)}</span><span class="a">${inr2(r.amount)}</span></button>`).join("");
+}
+
+async function add() {
+  const text = $("#txt").value.trim(), stat = $("#stat");
+  if (!text) { stat.className = "stat err"; stat.textContent = "Type or paste something first."; return; }
+  $("#go").disabled = true; stat.className = "stat"; stat.textContent = "Reading it… (about 20 seconds)"; $("#result").innerHTML = "";
+  let res;
+  try { res = await App.addText(text); } catch (e) { $("#go").disabled = false; stat.className = "stat err"; stat.textContent = e.message; return; }
+  $("#go").disabled = false;
+  if (res.status === "ok") { stat.textContent = ""; $("#txt").value = ""; resultCard(res.rec); renderRecent(); }
+  else if (res.status === "skipped") { stat.className = "stat err"; stat.textContent = "I couldn't find an amount in that, or it looks like an OTP, offer or credit. Try it like: 122 Snabbit maid."; }
+  else { stat.className = "stat err"; stat.textContent = "Saved, but it's taking longer than usual. Check the Summary page in a minute."; }
+}
+
+document.addEventListener("click", async e => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.id === "go") return add();
+  if (t.id === "another") { $("#result").innerHTML = ""; $("#txt").focus(); return; }
+  if (t.id === "change" && current) return App.Sheet.open(current, { onDone: rec => { if (rec) resultCard(App.state.RAW.find(r => r.id === rec.id) || rec); renderRecent(); } });
+  if (t.id === "whatGo") {
+    const words = $("#what").value.trim(), st = $("#whatStat");
+    if (!words) { st.className = "stat err"; st.textContent = "Type a few words first."; return; }
+    t.disabled = true; st.className = "stat"; st.textContent = "Saving… (about 20 seconds)";
+    try { await App.sendEdit(current.id, { describe: words, remember: "true" }); } catch (err) { t.disabled = false; st.className = "stat err"; st.textContent = err.message; return; }
+    const upd = App.state.RAW.find(r => r.id === current.id);
+    if (upd && upd.review) { t.disabled = false; st.className = "stat err"; st.textContent = `I still don't know "${words}". Tap Change details and pick a category.`; }
+    else { resultCard(upd); renderRecent(); }
+    return;
+  }
+  if (t.dataset.id) { const rec = App.state.RAW.find(r => r.id === t.dataset.id); if (rec) App.Sheet.open(rec, { onDone: () => renderRecent() }); }
+});
+$("#txt").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) add(); });
+
+App.nav("add");
+App.start().then(renderRecent);
+</script>
+</body>
+</html>

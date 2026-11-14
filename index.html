@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Expenses">
+<title>Expense Tracker</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f6f4; --surface: #fcfcfb; --line: #e4e3df;
+  --ink: #0b0b0b; --ink2: #52514e; --ink3: #85847f;
+  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#eda100; --c5:#e87ba4; --c6:#008300; --c7:#6250d6; --c8:#e34948; --cx:#9a9992;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg:#121211; --surface:#1a1a19; --line:#2c2c2a;
+    --ink:#f0efec; --ink2:#c3c2b7; --ink3:#8f8e87;
+    --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#0ca30c; --c7:#9085e9; --c8:#e66767; --cx:#77766f;
+  }
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 -apple-system,system-ui,"Segoe UI",sans-serif;
+  padding: max(16px, env(safe-area-inset-top)) 16px 40px; }
+main { max-width: 980px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 14px; margin: 0 0 12px; color: var(--ink2); font-weight: 600; }
+header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+.filters { display:flex; gap:8px; flex-wrap:wrap; }
+select, button, input { font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+button { cursor:pointer; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+.tiles { display:grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px; }
+.tile { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+.tile .k { color:var(--ink2); font-size:12px; }
+.tile .v { font-size:24px; font-weight:650; font-variant-numeric: tabular-nums; margin-top:2px; }
+.tile .s { color:var(--ink3); font-size:12px; }
+.grid2 { display:grid; grid-template-columns: 1fr; gap:16px; }
+@media (min-width: 760px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+.row { display:grid; grid-template-columns: minmax(110px,150px) 1fr auto; align-items:center; gap:10px; padding:6px 0; cursor:default; }
+.row.click { cursor:pointer; }
+.row .name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row .amt { font-variant-numeric: tabular-nums; color:var(--ink2); text-align:right; min-width:92px; }
+.track { height:12px; position:relative; }
+.bar { height:12px; border-radius:0 4px 4px 0; min-width:2px; }
+.sub { padding-left:14px; }
+.sub .name { color:var(--ink2); font-size:14px; }
+.sub .bar { height:8px; opacity:.75; }
+.sub .track { height:8px; }
+.cols { display:flex; align-items:flex-end; gap:6px; height:160px; padding-top:8px; }
+.col { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; min-width:0; cursor:pointer; }
+.col .b { width:100%; max-width:44px; background:var(--c1); border-radius:4px 4px 0 0; min-height:2px; }
+.col.sel .b { outline:2px solid var(--ink); outline-offset:1px; }
+.col .l { font-size:11px; color:var(--ink2); margin-top:6px; white-space:nowrap; }
+.col .v { font-size:11px; color:var(--ink3); margin-bottom:3px; white-space:nowrap; }
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th,td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
+td.n, th.n { text-align:right; font-variant-numeric: tabular-nums; }
+th { color:var(--ink2); font-weight:600; font-size:12px; }
+.dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+.muted { color:var(--ink3); }
+#tip { position:fixed; pointer-events:none; background:var(--ink); color:var(--bg); padding:6px 9px; border-radius:6px; font-size:12px; display:none; z-index:9; white-space:nowrap; }
+#setup { max-width:480px; margin:10vh auto; }
+#setup input { width:100%; margin:6px 0 12px; }
+.scroll { overflow-x:auto; }
+@media (max-width: 560px) { .row { grid-template-columns: 104px 1fr auto; gap:8px; } .row .amt { min-width:70px; }
+  th:nth-child(4), td:nth-child(4) { display:none; } th, td { padding:8px 4px; font-size:13px; } }
+</style>
+</head>
+<body>
+<div id="tip"></div>
+<main>
+<section id="setup" class="card" hidden>
+  <h1>Connect your data</h1>
+  <p class="muted">Enter your repo and a fine-grained GitHub token with <b>read-only Contents</b> access to it. They're stored only in this browser.</p>
+  <label>Repository (owner/name)</label>
+  <input id="repo" value="jainhitesh06-web/Expense-tracker" autocapitalize="none" autocorrect="off">
+  <label>Branch</label>
+  <input id="branch" value="main" autocapitalize="none">
+  <label>Token</label>
+  <input id="token" type="password" autocapitalize="none" autocorrect="off" placeholder="github_pat_...">
+  <button id="save">Connect</button>
+  <p id="err" style="color:var(--c8)"></p>
+</section>
+
+<section id="app" hidden>
+  <header>
+    <h1>Expenses</h1>
+    <div class="filters">
+      <select id="fMonth" aria-label="Month"></select>
+      <select id="fMode" aria-label="Payment mode"></select>
+      <button id="refresh" title="Reload">↻</button>
+      <button id="reset" title="Change repo or token">⚙</button>
+    </div>
+  </header>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="grid2">
+    <div class="card"><h2>By month</h2><div class="cols" id="months"></div></div>
+    <div class="card"><h2>By payment mode</h2><div id="modes"></div></div>
+  </div>
+
+  <div class="card"><h2>By category <span class="muted">(tap a category for subcategories)</span></h2><div id="cats"></div></div>
+
+  <div class="card">
+    <h2>Transactions</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Mode</th><th class="n">Amount</th></tr></thead>
+      <tbody id="txns"></tbody>
+    </table></div>
+    <p class="muted" id="more"></p>
+  </div>
+</section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const LS = { get:k=>{try{return localStorage.getItem(k)}catch(e){return null}}, set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}, del:k=>{try{localStorage.removeItem(k)}catch(e){}} };
+const CAT_ORDER = ["Food & Dining","Transport","Shopping","Bills & Utilities","Entertainment","Health","Travel","Finance"];
+const colorOf = c => { const i = CAT_ORDER.indexOf(c); return i >= 0 ? `var(--c${i+1})` : "var(--cx)"; };
+const inr = n => "₹" + Math.round(n).toLocaleString("en-IN");
+const MN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const monthLabel = m => MN[+m.slice(5)-1] + " " + m.slice(2,4);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let ALL = [], openCat = new Set(), TXN_LIMIT = 50;
+
+async function load() {
+  const repo = LS.get("repo"), token = LS.get("token"), branch = LS.get("branch") || "main";
+  const r = await fetch(`https://api.github.com/repos/${repo}/contents/data/expenses.json?ref=${encodeURIComponent(branch)}`,
+    { headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github.raw+json" }, cache: "no-store" });
+  if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "Token rejected (check it has Contents: read on this repo)." :
+    r.status === 404 ? "Repo, branch or data/expenses.json not found." : "GitHub error " + r.status);
+  ALL = (await r.json()).filter(x => x.type === "debit" && x.date);
+}
+
+function setup(msg) {
+  $("#app").hidden = true; $("#setup").hidden = false; $("#err").textContent = msg || "";
+  $("#repo").value = LS.get("repo") || $("#repo").value; $("#branch").value = LS.get("branch") || "main";
+}
+
+async function start() {
+  if (!LS.get("token") || !LS.get("repo")) return setup();
+  try { await load(); } catch (e) { return setup(e.message); }
+  $("#setup").hidden = true; $("#app").hidden = false;
+  buildFilters(); render();
+}
+
+function buildFilters() {
+  const months = [...new Set(ALL.map(x => x.date.slice(0,7)))].sort().reverse();
+  const cur = $("#fMonth").value || "all";
+  $("#fMonth").innerHTML = `<option value="all">All months</option>` + months.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join("");
+  $("#fMonth").value = months.includes(cur) ? cur : "all";
+  const modes = [...new Set(ALL.map(x => x.mode))].sort();
+  const curM = $("#fMode").value || "all";
+  $("#fMode").innerHTML = `<option value="all">All modes</option>` + modes.map(m => `<option>${esc(m)}</option>`).join("");
+  $("#fMode").value = modes.includes(curM) ? curM : "all";
+}
+
+function sumBy(rows, f) { const m = new Map(); rows.forEach(r => { const k = f(r); m.set(k, (m.get(k)||0) + r.amount); }); return m; }
+
+function barRows(entries, total, opts = {}) {
+  const max = Math.max(...entries.map(e => e[1]), 1);
+  return entries.map(([k, v, extra]) => `
+    <div class="row ${opts.click ? "click" : ""} ${opts.sub ? "sub" : ""}" ${opts.click ? `data-cat="${esc(k)}"` : ""}
+         data-tip="${esc(k)}: ${inr(v)} (${(v/total*100).toFixed(1)}%)">
+      <div class="name">${opts.dot ? `<span class="dot" style="background:${colorOf(k)}"></span>` : ""}${esc(k)}</div>
+      <div class="track"><div class="bar" style="width:${v/max*100}%;background:${opts.color || colorOf(k)}"></div></div>
+      <div class="amt">${inr(v)}</div>
+    </div>${extra || ""}`).join("");
+}
+
+function render() {
+  const month = $("#fMonth").value, mode = $("#fMode").value;
+  const base = ALL.filter(x => mode === "all" || x.mode === mode);
+  const rows = base.filter(x => month === "all" || x.date.startsWith(month));
+  const total = rows.reduce((a, r) => a + r.amount, 0);
+
+  const cats = [...sumBy(rows, r => r.category)].sort((a,b) => b[1]-a[1]);
+  const days = new Set(rows.map(r => r.date)).size || 1;
+  $("#tiles").innerHTML = [
+    ["Total spent", inr(total), month === "all" ? "all time" : monthLabel(month)],
+    ["Transactions", rows.length, ""],
+    ["Top category", cats[0] ? esc(cats[0][0]) : "—", cats[0] ? inr(cats[0][1]) : ""],
+    ["Avg per day", inr(total / days), `${days} active day${days>1?"s":""}`],
+  ].map(([k,v,s]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+
+  // months (ignores month filter so the trend is always visible)
+  const mt = [...sumBy(base, r => r.date.slice(0,7))].sort().slice(-12);
+  const mmax = Math.max(...mt.map(x => x[1]), 1);
+  $("#months").innerHTML = mt.length ? mt.map(([m, v]) => `
+    <div class="col ${m === month ? "sel" : ""}" data-m="${m}" data-tip="${monthLabel(m)}: ${inr(v)}">
+      <div class="v">${inr(v)}</div><div class="b" style="height:${v/mmax*100*0.75}%"></div><div class="l">${monthLabel(m)}</div>
+    </div>`).join("") : `<span class="muted">No data yet</span>`;
+
+  const md = [...sumBy(rows, r => r.mode)].sort((a,b) => b[1]-a[1]);
+  $("#modes").innerHTML = md.length ? barRows(md, total, { color: "var(--c1)" }) : `<span class="muted">No data</span>`;
+
+  $("#cats").innerHTML = cats.length ? cats.map(([c, v]) => {
+    const subs = [...sumBy(rows.filter(r => r.category === c), r => r.subcategory)].sort((a,b) => b[1]-a[1]);
+    const open = openCat.has(c);
+    return barRows([[c, v, open ? barRows(subs, v, { sub: true, color: colorOf(c) }) : ""]], total, { click: true, dot: true });
+  }).join("") : `<span class="muted">No expenses yet — send a bank SMS to your phone.</span>`;
+  // category rows use a shared scale: re-scale bars against the largest category
+  document.querySelectorAll("#cats > .row.click").forEach(el => {
+    const c = el.dataset.cat, v = cats.find(x => x[0] === c)[1];
+    el.querySelector(".bar").style.width = (v / cats[0][1] * 100) + "%";
+  });
+
+  const t = rows.slice().sort((a,b) => b.date.localeCompare(a.date) || b.amount - a.amount);
+  $("#txns").innerHTML = t.slice(0, TXN_LIMIT).map(r => `<tr>
+    <td>${r.date.slice(5).split("-").reverse().join("/")}</td>
+    <td>${esc(r.description)}</td>
+    <td><span class="dot" style="background:${colorOf(r.category)}"></span>${esc(r.category)}</td>
+    <td>${esc(r.mode)}</td><td class="n">${inr(r.amount)}</td></tr>`).join("");
+  $("#more").innerHTML = t.length > TXN_LIMIT ? `<button id="showAll">Show all ${t.length}</button>` : "";
+}
+
+document.addEventListener("click", e => {
+  const row = e.target.closest("#cats .row.click");
+  if (row) { const c = row.dataset.cat; openCat.has(c) ? openCat.delete(c) : openCat.add(c); render(); return; }
+  const col = e.target.closest(".col");
+  if (col) { $("#fMonth").value = $("#fMonth").value === col.dataset.m ? "all" : col.dataset.m; render(); return; }
+  if (e.target.id === "showAll") { TXN_LIMIT = 1e9; render(); }
+});
+const tip = $("#tip");
+document.addEventListener("pointermove", e => {
+  const el = e.target.closest("[data-tip]");
+  if (!el) { tip.style.display = "none"; return; }
+  tip.textContent = el.dataset.tip; tip.style.display = "block";
+  tip.style.left = Math.min(e.clientX + 12, innerWidth - tip.offsetWidth - 8) + "px"; tip.style.top = (e.clientY + 14) + "px";
+});
+$("#fMonth").onchange = $("#fMode").onchange = () => { TXN_LIMIT = 50; render(); };
+$("#refresh").onclick = start;
+$("#reset").onclick = () => setup();
+$("#save").onclick = () => {
+  LS.set("repo", $("#repo").value.trim()); LS.set("branch", $("#branch").value.trim() || "main");
+  LS.set("token", $("#token").value.trim() || LS.get("token") || ""); start();
+};
+start();
+</script>
+</body>
+</html>

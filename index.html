@@ -67,6 +67,16 @@ th { color:var(--ink2); font-weight:600; font-size:12px; }
 .scroll { overflow-x:auto; }
 @media (max-width: 560px) { .row { grid-template-columns: 104px 1fr auto; gap:8px; } .row .amt { min-width:70px; }
   th:nth-child(4), td:nth-child(4) { display:none; } th, td { padding:8px 4px; font-size:13px; } }
+textarea { width:100%; min-height:92px; font:inherit; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px; resize:vertical; }
+.fgrid { display:grid; grid-template-columns:1fr; gap:10px; margin-top:10px; }
+@media (min-width: 560px) { .fgrid { grid-template-columns:1fr 1fr; } }
+.fgrid label { display:block; font-size:12px; color:var(--ink2); margin-bottom:3px; }
+.fgrid select, .fgrid input { width:100%; }
+.fgrid .full { grid-column:1 / -1; }
+.primary { background:var(--c1); color:#fff; border-color:transparent; font-weight:600; }
+.primary[disabled] { opacity:.6; cursor:default; }
+#aStatus { margin:10px 0 0; min-height:1.4em; font-size:14px; }
+#aStatus.err { color:var(--c8); } #aStatus.ok { color:var(--c6); }
 </style>
 </head>
 <body>
@@ -74,7 +84,7 @@ th { color:var(--ink2); font-weight:600; font-size:12px; }
 <main>
 <section id="setup" class="card" hidden>
   <h1>Connect your data</h1>
-  <p class="muted">Enter your repo and a fine-grained GitHub token with <b>read-only Contents</b> access to it. They're stored only in this browser.</p>
+  <p class="muted">Enter your repo and a fine-grained GitHub token with <b>Contents: Read and write</b> on it (write is needed to add expenses; read-only is enough just to view). They're stored only in this browser.</p>
   <label>Repository (owner/name)</label>
   <input id="repo" value="jainhitesh06-web/Expense-tracker" autocapitalize="none" autocorrect="off">
   <label>Branch</label>
@@ -91,10 +101,33 @@ th { color:var(--ink2); font-weight:600; font-size:12px; }
     <div class="filters">
       <select id="fMonth" aria-label="Month"></select>
       <select id="fMode" aria-label="Payment mode"></select>
+      <button id="addToggle" class="primary">＋ Add</button>
       <button id="refresh" title="Reload">↻</button>
       <button id="reset" title="Change repo or token">⚙</button>
     </div>
   </header>
+
+  <div class="card" id="addCard" hidden>
+    <h2>Add expense</h2>
+    <label class="muted" for="aMsg">Paste the SMS / message (optional if you enter an amount)</label>
+    <textarea id="aMsg" placeholder="e.g. Rs.250.00 debited from A/c XX1234 to VPA swiggy@icici"></textarea>
+    <div class="fgrid">
+      <div><label for="aCat">Category</label><select id="aCat"></select></div>
+      <div id="aSubWrap" hidden><label for="aSub">Subcategory</label><select id="aSub"></select></div>
+      <div id="aTypeWrap" hidden><label for="aType">Travel by</label><select id="aType">
+        <option>Uber</option><option>Rapido</option><option>Auto</option><option>Other</option></select></div>
+      <div id="aFromWrap" hidden><label for="aFrom">From</label><input id="aFrom" placeholder="Pickup / start"></div>
+      <div id="aToWrap" hidden><label for="aTo">To</label><input id="aTo" placeholder="Destination"></div>
+      <div><label for="aMode">Payment mode</label><select id="aMode">
+        <option value="">Auto-detect</option><option>UPI</option><option>Credit Card</option><option>Debit Card</option>
+        <option>Cash</option><option>NetBanking</option><option>Wallet</option><option>Other</option></select></div>
+      <div><label for="aAmt">Amount ₹ (optional if it's in the text)</label><input id="aAmt" type="number" inputmode="decimal" min="0" step="0.01"></div>
+      <div><label for="aDate">Date</label><input id="aDate" type="date"></div>
+      <div class="full"><label for="aNote">Note (optional)</label><input id="aNote" placeholder="What was it for?"></div>
+    </div>
+    <p style="margin:12px 0 0"><button id="aSubmit" class="primary">Add</button></p>
+    <p id="aStatus" role="status"></p>
+  </div>
 
   <div class="tiles" id="tiles"></div>
 
@@ -119,13 +152,13 @@ th { color:var(--ink2); font-weight:600; font-size:12px; }
 <script>
 const $ = s => document.querySelector(s);
 const LS = { get:k=>{try{return localStorage.getItem(k)}catch(e){return null}}, set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}, del:k=>{try{localStorage.removeItem(k)}catch(e){}} };
-const CAT_ORDER = ["Food & Dining","Transport","Shopping","Bills & Utilities","Entertainment","Health","Travel","Finance"];
+const CAT_ORDER = ["Food & Dining","Travel","Shopping","Bills & Utilities","Entertainment","Health","Finance","Education"];
 const colorOf = c => { const i = CAT_ORDER.indexOf(c); return i >= 0 ? `var(--c${i+1})` : "var(--cx)"; };
 const inr = n => "₹" + Math.round(n).toLocaleString("en-IN");
 const MN = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const monthLabel = m => MN[+m.slice(5)-1] + " " + m.slice(2,4);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-let ALL = [], openCat = new Set(), TXN_LIMIT = 50;
+let ALL = [], RAW = [], RULES = null, openCat = new Set(), TXN_LIMIT = 50;
 
 async function load() {
   const repo = LS.get("repo"), token = LS.get("token"), branch = LS.get("branch") || "main";
@@ -133,7 +166,82 @@ async function load() {
     { headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github.raw+json" }, cache: "no-store" });
   if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "Token rejected (check it has Contents: read on this repo)." :
     r.status === 404 ? "Repo, branch or data/expenses.json not found." : "GitHub error " + r.status);
-  ALL = (await r.json()).filter(x => x.type === "debit" && x.date);
+  RAW = await r.json();
+  ALL = RAW.filter(x => x.type === "debit" && x.date);
+}
+
+async function loadRules() {
+  const repo = LS.get("repo"), token = LS.get("token"), branch = LS.get("branch") || "main";
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/contents/rules/categories.json?ref=${encodeURIComponent(branch)}`,
+      { headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github.raw+json" }, cache: "no-store" });
+    if (r.ok) RULES = await r.json();
+  } catch (e) {}
+  if (!RULES) RULES = { "Food & Dining": {}, "Travel": {}, "Shopping": {}, "Bills & Utilities": {}, "Entertainment": {}, "Health": {}, "Finance": {}, "Education": {}, "Cash & Transfers": {} };
+  const cur = $("#aCat").value;
+  $("#aCat").innerHTML = `<option value="">Auto-detect</option>` + Object.keys(RULES).map(c => `<option>${esc(c)}</option>`).join("");
+  $("#aCat").value = cur;
+  updateForm();
+}
+
+function updateForm() {
+  const cat = $("#aCat").value, travel = cat === "Travel";
+  $("#aTypeWrap").hidden = $("#aFromWrap").hidden = $("#aToWrap").hidden = !travel;
+  const subs = cat && !travel ? Object.keys(RULES[cat] || {}) : [];
+  $("#aSubWrap").hidden = !subs.length;
+  $("#aSub").innerHTML = `<option value="">Other</option>` + subs.map(x => `<option>${esc(x)}</option>`).join("");
+}
+
+const b64 = str => { let bin = ""; new TextEncoder().encode(str).forEach(b => bin += String.fromCharCode(b)); return btoa(bin); };
+const localDate = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const oneLine = v => String(v || "").replace(/[\r\n]+/g, " ").trim();
+function setStatus(msg, kind) { const el = $("#aStatus"); el.textContent = msg; el.className = kind || ""; }
+
+async function submitExpense() {
+  const msg = $("#aMsg").value.trim(), amt = $("#aAmt").value.trim();
+  if (!msg && !amt) return setStatus("Paste a message or enter an amount.", "err");
+  if (!amt && !/(?:rs\.?|inr|₹)\s*[\d,]+/i.test(msg)) return setStatus("Couldn't find an amount in the text. Enter it in the Amount box.", "err");
+  const cat = $("#aCat").value, travel = cat === "Travel";
+  const sub = travel ? $("#aType").value : $("#aSub").value;
+  const frm = travel ? oneLine($("#aFrom").value) : "", to = travel ? oneLine($("#aTo").value) : "";
+  const note = oneLine($("#aNote").value), mode = $("#aMode").value;
+  const manual = !!(cat || amt || mode || frm || to || note);
+  const date = $("#aDate").value || localDate();
+  const t = new Date(), hh = String(t.getHours()).padStart(2, "0"), mm = String(t.getMinutes()).padStart(2, "0"), ss = String(t.getSeconds()).padStart(2, "0");
+  const head = ["sender: dashboard", `received: ${date}T${hh}:${mm}:${ss}`];
+  if (manual) head.push("manual: true");
+  if (cat) head.push("category: " + cat, "subcategory: " + (sub || "Other"));
+  if (amt) head.push("amount: " + amt);
+  if (mode) head.push("mode: " + mode);
+  if (frm) head.push("from: " + frm);
+  if (to) head.push("to: " + to);
+  if (note) head.push("note: " + note);
+  const text = head.join("\n") + "\n---\n" + msg + "\n";
+  const repo = LS.get("repo"), token = LS.get("token"), branch = LS.get("branch") || "main";
+  const path = `inbox/manual-${Date.now()}-${Math.floor(Math.random() * 1e6)}.txt`;
+  $("#aSubmit").disabled = true; setStatus("Saving…");
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
+      method: "PUT",
+      headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "manual entry", content: b64(text), branch })
+    });
+    if (!r.ok) throw new Error(r.status === 401 || r.status === 403 || r.status === 404
+      ? "Saving failed: the token needs Contents: Read and write on this repo." : "Saving failed (GitHub " + r.status + ").");
+  } catch (e) { $("#aSubmit").disabled = false; return setStatus(e.message, "err"); }
+  setStatus("Saved. Classifying… (takes about 20 seconds)");
+  const before = RAW.length;
+  for (let i = 0; i < 20; i++) {
+    await new Promise(res => setTimeout(res, 4000));
+    try { await load(); } catch (e) { continue; }
+    if (RAW.length > before) {
+      buildFilters(); render();
+      $("#aMsg").value = ""; $("#aAmt").value = ""; $("#aNote").value = ""; $("#aFrom").value = ""; $("#aTo").value = "";
+      $("#aSubmit").disabled = false; return setStatus("Added ✓", "ok");
+    }
+  }
+  $("#aSubmit").disabled = false;
+  setStatus("Saved, but it hasn't shown up yet. Check the Actions tab, or press ↻ in a minute. (Entries without a readable amount are skipped.)", "err");
 }
 
 function setup(msg) {
@@ -145,7 +253,8 @@ async function start() {
   if (!LS.get("token") || !LS.get("repo")) return setup();
   try { await load(); } catch (e) { return setup(e.message); }
   $("#setup").hidden = true; $("#app").hidden = false;
-  buildFilters(); render();
+  if (!$("#aDate").value) $("#aDate").value = localDate();
+  buildFilters(); render(); loadRules();
 }
 
 function buildFilters() {
@@ -234,6 +343,9 @@ document.addEventListener("pointermove", e => {
 });
 $("#fMonth").onchange = $("#fMode").onchange = () => { TXN_LIMIT = 50; render(); };
 $("#refresh").onclick = start;
+$("#addToggle").onclick = () => { const c = $("#addCard"); c.hidden = !c.hidden; if (!c.hidden) $("#aMsg").focus(); };
+$("#aCat").onchange = updateForm;
+$("#aSubmit").onclick = submitExpense;
 $("#reset").onclick = () => setup();
 $("#save").onclick = () => {
   LS.set("repo", $("#repo").value.trim()); LS.set("branch", $("#branch").value.trim() || "main");

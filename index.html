@@ -231,17 +231,26 @@ async function submitExpense() {
   } catch (e) { $("#aSubmit").disabled = false; return setStatus(e.message, "err"); }
   setStatus("Saved. Classifying… (takes about 20 seconds)");
   const before = RAW.length;
-  for (let i = 0; i < 20; i++) {
-    await new Promise(res => setTimeout(res, 4000));
-    try { await load(); } catch (e) { continue; }
+  const exists = async () => {
+    const r = await fetch(`https://api.github.com/repos/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`,
+      { headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" }, cache: "no-store" });
+    return r.status !== 404;
+  };
+  const done = (msg, kind) => { $("#aSubmit").disabled = false; setStatus(msg, kind); };
+  for (let i = 0; i < 30; i++) {
+    await new Promise(res => setTimeout(res, 3000));
+    let pending = true;
+    try { pending = await exists(); } catch (e) { continue; }
+    if (pending) continue;               // workflow hasn't picked it up yet
+    try { await load(); } catch (e) { return done("Processed, but reloading failed. Press ↻.", "err"); }
     if (RAW.length > before) {
       buildFilters(); render();
       $("#aMsg").value = ""; $("#aAmt").value = ""; $("#aNote").value = ""; $("#aFrom").value = ""; $("#aTo").value = "";
-      $("#aSubmit").disabled = false; return setStatus("Added ✓", "ok");
+      return done("Added ✓", "ok");
     }
+    return done("Processed, but no expense was created. The text may not contain an amount, or it looks like an OTP, offer or credit. Enter the amount and pick a category, then try again.", "err");
   }
-  $("#aSubmit").disabled = false;
-  setStatus("Saved, but it hasn't shown up yet. Check the Actions tab, or press ↻ in a minute. (Entries without a readable amount are skipped.)", "err");
+  done("Saved, but the workflow hasn't processed it yet. Check the Actions tab, or press ↻ in a minute.", "err");
 }
 
 function setup(msg) {

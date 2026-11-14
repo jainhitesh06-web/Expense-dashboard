@@ -149,7 +149,11 @@ const App = (() => {
     </div>`;
     document.body.appendChild(sheetEl);
     const q = s => $(s, sheetEl);
-    q("#sCat").onchange = () => { catTouched = true; q("#sCatNew").hidden = q("#sCat").value !== NEW; fillSubs(q("#sCat").value === NEW ? "" : q("#sCat").value, ""); };
+    q("#sCat").onchange = () => {
+      catTouched = true; q("#sCatNew").hidden = q("#sCat").value !== NEW; fillSubs(q("#sCat").value === NEW ? "" : q("#sCat").value, "");
+      // Don't silently pick the first subcategory (it would be filed as e.g. Food Delivery by accident).
+      if ([...q("#sSub").options].some(o => o.value === "Other")) q("#sSub").value = "Other";
+    };
     q("#sSub").onchange = () => { catTouched = true; q("#sSubNew").hidden = q("#sSub").value !== NEW; };
     q("#sCancel").onclick = close;
     sheetEl.addEventListener("click", e => { if (e.target === sheetEl) close(); });

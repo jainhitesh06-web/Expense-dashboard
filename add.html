@@ -46,6 +46,18 @@ function resultCard(r) {
   $("#result").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
+function dupCard(r) {
+  current = r; const o = App.original(r);
+  $("#result").innerHTML = `<div class="card result" style="border-color:var(--c4)">
+    <div class="rt">⚠️ This looks like a duplicate</div>
+    <div class="rs">You just added: <b>${inr2(r.amount)} · ${esc(payName(r))}</b> · ${dayText(r.date)}</div>
+    <div class="rs">Already in your list: <b>${o ? inr2(o.amount) + " · " + esc(payName(o)) + " · " + dayText(o.date) : "an earlier payment"}</b></div>
+    <div class="rs muted">Why: ${esc(r.dup_reason || "similar")}. It isn't counted yet.</div>
+    <div class="rowbtns"><button class="primary" id="dupKeep">Add anyway</button><button id="dupDrop">Don't add</button></div>
+    <div id="dupStat" class="stat"></div></div>`;
+  $("#result").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 function renderRecent() {
   const rows = App.debits().slice().sort((a, b) => (b.added || b.date).localeCompare(a.added || a.date)).slice(0, 6);
   $("#recentCard").hidden = !rows.length;
@@ -59,7 +71,7 @@ async function add() {
   let res;
   try { res = await App.addText(text); } catch (e) { $("#go").disabled = false; stat.className = "stat err"; stat.textContent = e.message; return; }
   $("#go").disabled = false;
-  if (res.status === "ok") { stat.textContent = ""; $("#txt").value = ""; resultCard(res.rec); renderRecent(); }
+  if (res.status === "ok") { stat.textContent = ""; $("#txt").value = ""; res.rec.duplicate_of ? dupCard(res.rec) : resultCard(res.rec); renderRecent(); }
   else if (res.status === "skipped") { stat.className = "stat err"; stat.textContent = "I couldn't find an amount in that, or it looks like an OTP, offer or credit. Try it like: 122 Snabbit maid."; }
   else { stat.className = "stat err"; stat.textContent = "Saved, but it's taking longer than usual. Check the Summary page in a minute."; }
 }
@@ -67,6 +79,15 @@ async function add() {
 document.addEventListener("click", async e => {
   const t = e.target.closest("button"); if (!t) return;
   if (t.id === "go") return add();
+  if (t.id === "dupKeep" || t.id === "dupDrop") {
+    const keep = t.id === "dupKeep", id = current.id, st = $("#dupStat");
+    $("#dupKeep").disabled = $("#dupDrop").disabled = true; st.className = "stat"; st.textContent = (keep ? "Adding" : "Removing") + "… (about 20 seconds)";
+    try { await App.resolveDuplicate(id, keep); } catch (err) { $("#dupKeep").disabled = $("#dupDrop").disabled = false; st.className = "stat err"; st.textContent = err.message; return; }
+    renderRecent();
+    if (keep) { const upd = App.state.RAW.find(r => r.id === id); upd ? resultCard(upd) : ($("#result").innerHTML = ""); }
+    else $("#result").innerHTML = `<div class="card"><p style="margin:0">Okay, I didn't add it. ✓</p></div>`;
+    return;
+  }
   if (t.id === "another") { $("#result").innerHTML = ""; $("#txt").focus(); return; }
   if (t.id === "change" && current) return App.Sheet.open(current, { onDone: rec => { if (rec) resultCard(App.state.RAW.find(r => r.id === rec.id) || rec); renderRecent(); } });
   if (t.id === "whatGo") {

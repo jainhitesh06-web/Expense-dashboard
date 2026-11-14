@@ -250,5 +250,8 @@ const App = (() => {
   }
 
   return { state, $, esc, inr, inr2, monthLabel, monthShort, localDate, title, catIcon, catColor, payName, MN,
-    start, load, addText, sendEdit, connect, nav, Sheet: { open, close }, debits: () => state.RAW.filter(r => r.type === "debit" && r.date) };
+    start, load, addText, sendEdit, connect, nav, Sheet: { open, close }, debits: () => state.RAW.filter(r => r.type === "debit" && r.date && !r.duplicate_of),
+    dups: () => state.RAW.filter(r => r.duplicate_of),
+    original: r => state.RAW.find(o => o.id === r.duplicate_of),
+    resolveDuplicate: (id, keep) => sendEdit(id, keep ? { keep: "true" } : { delete: "true" }) };
 })();

@@ -75,6 +75,16 @@ function render() {
       ${delta}<div class="muted" style="margin-top:8px;font-size:14px">About ${inr(total / days)} on each day you spent</div></div>`;
   }
 
+  // possible duplicates (held out of the totals until you decide)
+  const dups = App.dups();
+  if (dups.length) {
+    h += `<div class="card attn"><h2>${dups.length === 1 ? "A payment looks like a duplicate" : dups.length + " payments look like duplicates"}</h2><p style="margin:0 0 6px;font-size:14px">They are not counted until you decide.</p>` +
+      dups.slice(0, 3).map(r => { const o = App.original(r);
+        return `<div class="item" style="flex-wrap:wrap"><span>${esc(payName(r))} · ${inr2(r.amount)} · ${dayLabel(r.date)}<br><span style="font-size:13px;opacity:.85">${o ? `Same as ${esc(payName(o))} · ${inr2(o.amount)} · ${dayLabel(o.date)}` : "Same as an earlier payment"} (${esc(r.dup_reason || "similar")})</span></span>
+          <span style="display:flex;gap:6px"><button data-keep="${esc(r.id)}">Add anyway</button><button data-drop="${esc(r.id)}">Don't add</button></span></div>`; }).join("") +
+      (dups.length > 3 ? `<div style="font-size:13px;margin-top:6px">…and ${dups.length - 3} more</div>` : "") + `<div id="dupStat" class="stat"></div></div>`;
+  }
+
   // needs attention
   const review = all.filter(r => r.review);
   if (review.length) {
@@ -154,6 +164,13 @@ document.addEventListener("click", e => {
   const toggle = k => { S.open.has(k) ? S.open.delete(k) : S.open.add(k); render(); };
   if (t.dataset.cat) return toggle(t.dataset.cat);
   if (t.dataset.sub) return toggle(t.dataset.sub);
+  if (t.dataset.keep || t.dataset.drop) {
+    const keep = !!t.dataset.keep, id = t.dataset.keep || t.dataset.drop;
+    document.querySelectorAll("[data-keep],[data-drop]").forEach(b => b.disabled = true);
+    const st = $("#dupStat"); if (st) { st.className = "stat"; st.textContent = (keep ? "Adding" : "Removing") + "… (about 20 seconds)"; }
+    App.resolveDuplicate(id, keep).then(() => render()).catch(err => { if (st) { st.className = "stat err"; st.textContent = err.message; } render(); });
+    return;
+  }
   const id = t.dataset.id || t.dataset.review;
   if (id) { const rec = App.state.RAW.find(r => r.id === id); if (rec) App.Sheet.open(rec, { onDone: () => render() }); }
 });
